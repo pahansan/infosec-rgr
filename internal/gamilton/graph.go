@@ -2,12 +2,11 @@ package gamilton
 
 import (
 	"bufio"
-	"fmt"
+	"infosec-rgr/internal/filereader"
 	"infosec-rgr/internal/rsa"
 	"math/big"
-	mrand "math/rand"
+	"math/rand"
 	"os"
-	"strings"
 )
 
 type Graph struct {
@@ -28,29 +27,30 @@ func NewGraph(size int) *Graph {
 func NewGraphFromFile(filename string) (*Graph, []int, error) {
 	file, err := os.Open(filename)
 	if err != nil {
-		return nil, []int{}, err
+		return nil, nil, err
 	}
 	defer file.Close()
+
 	scanner := bufio.NewScanner(file)
-	scanner.Scan()
-	line := scanner.Text()
-	var size, nEdges int
-	fmt.Sscanf(line, "%d %d", &size, &nEdges)
+	size, nEdges, err := filereader.Read2Numbers(scanner)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	g := NewGraph(size)
 	for range nEdges {
-		var r, c int
-		scanner.Scan()
-		line := scanner.Text()
-		fmt.Sscanf(line, "%d %d", &r, &c)
+		r, c, err := filereader.Read2Numbers(scanner)
+		if err != nil {
+			return nil, nil, err
+		}
 		g.AddEdge(r, c)
 	}
-	cycle := make([]int, size)
-	scanner.Scan()
-	line = scanner.Text()
-	fields := strings.Fields(line)
-	for i, v := range fields {
-		fmt.Sscan(v, &cycle[i])
+
+	cycle, err := filereader.ReadSlice(scanner, size)
+	if err != nil {
+		return nil, nil, err
 	}
+
 	return g, cycle, nil
 }
 
@@ -73,7 +73,7 @@ func (g *Graph) IsomorphicCopy() (*Graph, []int) {
 		permutation[i] = i
 	}
 
-	mrand.Shuffle(size, func(i, j int) {
+	rand.Shuffle(size, func(i, j int) {
 		permutation[i], permutation[j] = permutation[j], permutation[i]
 	})
 
@@ -114,67 +114,43 @@ func (g *Graph) Size() int {
 	return len(g.v)
 }
 
-func (g *Graph) AddEdge(i, j int) error {
-	size := g.Size()
-	if i >= size || j >= size {
-		return fmt.Errorf("incorrect input: i = %d and j = %d for graph with size %d", i, j, size)
-	}
+func (g *Graph) AddEdge(i, j int) {
 	g.v[i][j].SetInt64(1)
 	g.v[j][i].SetInt64(1)
-	return nil
 }
 
-func (g *Graph) RemoveEdge(i, j int) error {
-	size := g.Size()
-	if i >= size || j >= size {
-		return fmt.Errorf("incorrect input: i = %d and j = %d for graph with size %d", i, j, size)
-	}
+func (g *Graph) RemoveEdge(i, j int) {
 	g.v[i][j].SetInt64(0)
-	return nil
+	g.v[j][i].SetInt64(0)
 }
 
-func (g *Graph) CheckEdge(i, j int) (bool, error) {
+func (g *Graph) EdgeExists(i, j int) bool {
 	size := g.Size()
 	if i >= size || j >= size {
-		return false, fmt.Errorf("incorrect input: i = %d and j = %d for graph with size %d", i, j, size)
+		return false
 	}
-
-	exists := g.v[i][j].Bit(0) == 1
-
-	return exists, nil
+	return g.v[i][j].Bit(0) == 1
 }
 
-func (g *Graph) SetEdge(i, j int, value *big.Int) error {
-	size := g.Size()
-	if i >= size || j >= size {
-		return fmt.Errorf("incorrect input: i = %d and j = %d for graph with size %d", i, j, size)
-	}
+func (g *Graph) SetEdge(i, j int, value *big.Int) {
 	g.v[i][j].Set(value)
 	g.v[j][i].Set(value)
-	return nil
 }
 
-func (g *Graph) GetEdge(i, j int) (*big.Int, error) {
-	size := g.Size()
-	if i >= size || j >= size {
-		return nil, fmt.Errorf("incorrect input: i = %d and j = %d for graph with size %d", i, j, size)
-	}
-	return new(big.Int).Set(g.v[i][j]), nil
+func (g *Graph) GetEdge(i, j int) *big.Int {
+	return new(big.Int).Set(g.v[i][j])
 }
 
-func (g *Graph) AddNEdges(n int) {
-	if n == 0 {
-		return
-	}
+func (g *Graph) AddNRandEdges(n int) {
 	i := 0
 	size := g.Size()
 	for i < n {
-		r := mrand.Intn(size)
-		c := mrand.Intn(size)
+		r := rand.Intn(size)
+		c := rand.Intn(size)
 		if r == c {
 			continue
 		}
-		if exist, _ := g.CheckEdge(r, c); exist {
+		if g.EdgeExists(r, c) {
 			continue
 		}
 		g.AddEdge(r, c)
@@ -183,12 +159,10 @@ func (g *Graph) AddNEdges(n int) {
 }
 
 func (g *Graph) padWithRandomness(i, j int) *big.Int {
-	thereEdge, _ := g.CheckEdge(i, j)
-
-	randomPart := new(big.Int).SetInt64(mrand.Int63())
+	randomPart := big.NewInt(rand.Int63())
 	randomPart.Lsh(randomPart, 1)
 
-	if thereEdge {
+	if g.EdgeExists(i, j) {
 		randomPart.Or(randomPart, big.NewInt(1))
 	}
 
@@ -197,10 +171,10 @@ func (g *Graph) padWithRandomness(i, j int) *big.Int {
 
 func (g *Graph) AddPadding() *Graph {
 	size := g.Size()
-	newG := g.Copy()
+	newG := NewGraph(size)
 	for i := range size {
 		for j := i + 1; j < size; j++ {
-			newValue := newG.padWithRandomness(i, j)
+			newValue := g.padWithRandomness(i, j)
 			newG.SetEdge(i, j, newValue)
 		}
 	}
@@ -209,11 +183,10 @@ func (g *Graph) AddPadding() *Graph {
 
 func (g *Graph) RemovePadding() *Graph {
 	size := g.Size()
-	newG := g.Copy()
+	newG := NewGraph(size)
 	for i := range size {
 		for j := i + 1; j < size; j++ {
-			exists, _ := newG.CheckEdge(i, j)
-			if exists {
+			if g.EdgeExists(i, j) {
 				newG.AddEdge(i, j)
 			} else {
 				newG.RemoveEdge(i, j)
@@ -224,14 +197,14 @@ func (g *Graph) RemovePadding() *Graph {
 }
 
 func (g *Graph) encryptEdgeRSA(i, j int, keys *rsa.Keys) {
-	plain, _ := g.GetEdge(i, j)
-	cipher := rsa.Encrypt(plain, keys.D, keys.N)
+	plain := g.GetEdge(i, j)
+	cipher, _ := rsa.Encrypt(plain, keys.D, keys.N)
 	g.SetEdge(i, j, cipher)
 }
 
 func (g *Graph) decryptEdgeRSA(i, j int, keys *rsa.Keys) {
-	cipher, _ := g.GetEdge(i, j)
-	plain := rsa.Decrypt(cipher, keys.C, keys.N)
+	cipher := g.GetEdge(i, j)
+	plain, _ := rsa.Decrypt(cipher, keys.C, keys.N)
 	g.SetEdge(i, j, plain)
 }
 
@@ -298,13 +271,11 @@ func (g *Graph) Equals(other *Graph) bool {
 
 func (g *Graph) CheckCycle(cycle []int) bool {
 	for i := 1; i < len(cycle); i++ {
-		exists, _ := g.CheckEdge(cycle[i-1], cycle[i])
-		if !exists {
+		if !g.EdgeExists(cycle[i-1], cycle[i]) {
 			return false
 		}
 	}
-	exists, _ := g.CheckEdge(cycle[0], cycle[len(cycle)-1])
-	if !exists {
+	if !g.EdgeExists(cycle[0], cycle[len(cycle)-1]) {
 		return false
 	}
 	return true
@@ -317,9 +288,7 @@ func (g *Graph) SameAs(other *Graph) bool {
 	}
 	for i := range size {
 		for j := i + 1; j < size; j++ {
-			gExists, _ := g.CheckEdge(i, j)
-			otherExists, _ := other.CheckEdge(i, j)
-			if gExists != otherExists {
+			if g.EdgeExists(i, j) != other.EdgeExists(i, j) {
 				return false
 			}
 		}

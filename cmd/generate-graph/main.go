@@ -15,13 +15,13 @@ func main() {
 	flag.Parse()
 	nEdges := *size + *nExtraEdges
 	maxEdges := *size * (*size - 1) / 2
-	
+
 	if nEdges > maxEdges {
 		log.Fatalf("Sum of vertexes in cycle and extra vertexes can't be bigger than square size")
 	}
 
 	g, cycle := gamilton.NewGraphWithCycle(*size)
-	g.AddNEdges(*nExtraEdges)
+	g.AddNRandEdges(*nExtraEdges)
 
 	file, err := os.Create(*fileName)
 	if err != nil {
@@ -33,8 +33,7 @@ func main() {
 
 	for i := range *size {
 		for j := i + 1; j < *size; j++ {
-			exists, _ := g.CheckEdge(i, j)
-			if exists {
+			if g.EdgeExists(i, j) {
 				fmt.Fprintf(file, "%d %d\n", i, j)
 			}
 		}
@@ -43,12 +42,4 @@ func main() {
 	for i := range cycle {
 		fmt.Fprintf(file, "%d ", cycle[i])
 	}
-
-	// tmp := make([]int, 5)
-	// str := "1 2 3 4 5"
-	// fields := strings.Fields(str)
-	// for i, v := range fields {
-	// 	fmt.Sscan(v, &tmp[i])
-	// }
-	// fmt.Print(tmp)
 }
