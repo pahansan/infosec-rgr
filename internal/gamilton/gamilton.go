@@ -1,7 +1,8 @@
 package gamilton
 
 import (
-	"crypto/rsa"
+	"fmt"
+	"infosec-rgr/internal/rsa"
 	"math/rand"
 )
 
@@ -26,37 +27,39 @@ func NewGraphWithCycle(size int) (*Graph, []int) {
 	return graph, cycle
 }
 
-func transformCycle(other, permutations []int) []int {
-	cycle := make([]int, len(other))
+func transformCycle(cycle, permutations []int) []int {
+	newCycle := make([]int, len(cycle))
 	for i := range len(cycle) {
-		newI := permutations[i]
-		cycle[i] = other[newI]
+		newCycle[i] = permutations[cycle[i]]
 	}
-	return cycle
+	return newCycle
 }
 
-func Protocol(g *Graph, cycle []int, q int, publicKey *rsa.PublicKey, privateKey *rsa.PrivateKey) bool {
+func Protocol(g *Graph, cycle []int, q int, keys *rsa.Keys) bool {
 	h, perms := g.IsomorphicCopy()
-	f, _ := h.EncryptRSA(publicKey)
+	hTilda := h.AddPadding()
+	f := hTilda.EncryptRSA(keys)
 	if q == 0 {
 		newCycle := transformCycle(cycle, perms)
-		fDecrypted, _ := f.DecryptCycleRSA(privateKey, newCycle)
+		fDecrypted := f.DecryptCycleRSA(keys, newCycle)
 		if !fDecrypted.CheckCycle(newCycle) {
+			fmt.Println("CheckCycle failed")
 			return false
 		}
-		fEncrypted, _ := fDecrypted.EncryptCycleRSA(publicKey, newCycle)
+		fEncrypted := fDecrypted.EncryptCycleRSA(keys, newCycle)
 		if f.Equals(fEncrypted) {
 			return true
 		} else {
+			fmt.Println("Equals failed")
 			return false
 		}
 	} else if q == 1 {
-		fDecrypted, _ := f.DecryptRSA(privateKey)
+		fDecrypted := f.DecryptRSA(keys)
 		original := fDecrypted.IsomorphicOriginal(perms)
 		if !original.SameAs(g) {
 			return false
 		}
-		fEncrypted, _ := fDecrypted.EncryptRSA(publicKey)
+		fEncrypted := fDecrypted.EncryptRSA(keys)
 		if !fEncrypted.Equals(f) {
 			return false
 		}

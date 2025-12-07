@@ -1,11 +1,10 @@
 package main
 
 import (
-	"crypto/rand"
-	"crypto/rsa"
 	"flag"
 	"fmt"
 	"infosec-rgr/internal/gamilton"
+	"infosec-rgr/internal/rsa"
 	"log"
 )
 
@@ -16,17 +15,13 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		log.Fatal(err)
-	}
-	publicKey := &privateKey.PublicKey
-	if gamilton.Protocol(g, cycle, 0, publicKey, privateKey) {
+	keys := rsa.GenerateKeys()
+	if gamilton.Protocol(g, cycle, 0, &keys) {
 		fmt.Println("Cool")
 	} else {
 		fmt.Println("Jopa")
 	}
-	if gamilton.Protocol(g, cycle, 1, publicKey, privateKey) {
+	if gamilton.Protocol(g, cycle, 1, &keys) {
 		fmt.Println("Cool")
 	} else {
 		fmt.Println("Jopa")

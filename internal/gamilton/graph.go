@@ -2,10 +2,8 @@ package gamilton
 
 import (
 	"bufio"
-	"crypto/rand"
-	"crypto/rsa"
-	"crypto/sha256"
 	"fmt"
+	"infosec-rgr/internal/rsa"
 	"math/big"
 	mrand "math/rand"
 	"os"
@@ -18,9 +16,9 @@ type Graph struct {
 
 func NewGraph(size int) *Graph {
 	g := &Graph{v: make([][]*big.Int, size)}
-	for i := range g.v {
+	for i := range size {
 		g.v[i] = make([]*big.Int, size)
-		for j := range g.v[i] {
+		for j := range size {
 			g.v[i][j] = new(big.Int)
 		}
 	}
@@ -57,13 +55,14 @@ func NewGraphFromFile(filename string) (*Graph, []int, error) {
 }
 
 func (g *Graph) Copy() *Graph {
-	other := NewGraph(g.Size())
-	for i := range other.v {
-		for j := range other.v[i] {
-			other.v[i][j].Set(g.v[i][j])
+	size := g.Size()
+	newGraph := NewGraph(size)
+	for i := range size {
+		for j := range size {
+			newGraph.v[i][j].Set(g.v[i][j])
 		}
 	}
-	return other
+	return newGraph
 }
 
 func (g *Graph) IsomorphicCopy() (*Graph, []int) {
@@ -78,16 +77,16 @@ func (g *Graph) IsomorphicCopy() (*Graph, []int) {
 		permutation[i], permutation[j] = permutation[j], permutation[i]
 	})
 
-	other := NewGraph(size)
+	newGraph := NewGraph(size)
 
 	for i := range size {
 		for j := range size {
 			newI := permutation[i]
 			newJ := permutation[j]
-			other.v[newI][newJ].Set(g.v[i][j])
+			newGraph.v[newI][newJ].Set(g.v[i][j])
 		}
 	}
-	return other, permutation
+	return newGraph, permutation
 }
 
 func (g *Graph) IsomorphicOriginal(permutation []int) *Graph {
@@ -139,7 +138,10 @@ func (g *Graph) CheckEdge(i, j int) (bool, error) {
 	if i >= size || j >= size {
 		return false, fmt.Errorf("incorrect input: i = %d and j = %d for graph with size %d", i, j, size)
 	}
-	return g.v[i][j].Cmp(big.NewInt(0)) == 1, nil
+
+	exists := g.v[i][j].Bit(0) == 1
+
+	return exists, nil
 }
 
 func (g *Graph) SetEdge(i, j int, value *big.Int) error {
@@ -193,92 +195,90 @@ func (g *Graph) padWithRandomness(i, j int) *big.Int {
 	return randomPart
 }
 
-func (g *Graph) EncryptRSA(publicKey *rsa.PublicKey) (*Graph, error) {
+func (g *Graph) AddPadding() *Graph {
 	size := g.Size()
-	encrypted := NewGraph(size)
+	newG := g.Copy()
+	for i := range size {
+		for j := i + 1; j < size; j++ {
+			newValue := newG.padWithRandomness(i, j)
+			newG.SetEdge(i, j, newValue)
+		}
+	}
+	return newG
+}
+
+func (g *Graph) RemovePadding() *Graph {
+	size := g.Size()
+	newG := g.Copy()
+	for i := range size {
+		for j := i + 1; j < size; j++ {
+			exists, _ := newG.CheckEdge(i, j)
+			if exists {
+				newG.AddEdge(i, j)
+			} else {
+				newG.RemoveEdge(i, j)
+			}
+		}
+	}
+	return newG
+}
+
+func (g *Graph) encryptEdgeRSA(i, j int, keys *rsa.Keys) {
+	plain, _ := g.GetEdge(i, j)
+	cipher := rsa.Encrypt(plain, keys.D, keys.N)
+	g.SetEdge(i, j, cipher)
+}
+
+func (g *Graph) decryptEdgeRSA(i, j int, keys *rsa.Keys) {
+	cipher, _ := g.GetEdge(i, j)
+	plain := rsa.Decrypt(cipher, keys.C, keys.N)
+	g.SetEdge(i, j, plain)
+}
+
+func (g *Graph) EncryptRSA(keys *rsa.Keys) *Graph {
+	size := g.Size()
+	encrypted := g.Copy()
 
 	for i := range size {
 		for j := i + 1; j < size; j++ {
-			plaintext := g.padWithRandomness(i, j)
-
-			ciphertext, err := rsa.EncryptOAEP(sha256.New(), rand.Reader, publicKey, plaintext.Bytes(), nil)
-			if err != nil {
-				return nil, err
-			}
-
-			encrypted.SetEdge(i, j, new(big.Int).SetBytes(ciphertext))
+			encrypted.encryptEdgeRSA(i, j, keys)
 		}
 	}
-	return encrypted, nil
+	return encrypted
 }
 
-func (g *Graph) DecryptRSA(privateKey *rsa.PrivateKey) (*Graph, error) {
+func (g *Graph) DecryptRSA(keys *rsa.Keys) *Graph {
 	size := g.Size()
-	decrypted := NewGraph(size)
+	decrypted := g.Copy()
 
 	for i := range size {
 		for j := i + 1; j < size; j++ {
-			ciphertext := g.v[i][j].Bytes()
-
-			plaintext, err := rsa.DecryptOAEP(sha256.New(), rand.Reader, privateKey, ciphertext, nil)
-			if err != nil {
-				return nil, err
-			}
-
-			decrypted.SetEdge(i, j, new(big.Int).SetBytes(plaintext))
+			decrypted.decryptEdgeRSA(i, j, keys)
 		}
 	}
-	return decrypted, nil
+	return decrypted
 }
 
-func (g *Graph) EncryptCycleRSA(publicKey *rsa.PublicKey, cycle []int) (*Graph, error) {
+func (g *Graph) EncryptCycleRSA(keys *rsa.Keys, cycle []int) *Graph {
 	size := g.Size()
-	encrypted := NewGraph(size)
+	encrypted := g.Copy()
 
 	for i := 1; i < size; i++ {
-		plainText := g.v[i-1][i].Bytes()
-
-		cipherText, err := rsa.EncryptOAEP(sha256.New(), rand.Reader, publicKey, plainText, nil)
-		if err != nil {
-			return nil, err
-		}
-
-		encrypted.SetEdge(i-1, i, new(big.Int).SetBytes(cipherText))
+		encrypted.encryptEdgeRSA(cycle[i-1], cycle[i], keys)
 	}
-	plainText := g.v[0][size-1].Bytes()
-
-	cipherText, err := rsa.EncryptOAEP(sha256.New(), rand.Reader, publicKey, plainText, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	encrypted.SetEdge(0, size-1, new(big.Int).SetBytes(cipherText))
-	return encrypted, nil
+	encrypted.encryptEdgeRSA(cycle[0], cycle[size-1], keys)
+	return encrypted
 }
 
-func (g *Graph) DecryptCycleRSA(privateKey *rsa.PrivateKey, cycle []int) (*Graph, error) {
+func (g *Graph) DecryptCycleRSA(keys *rsa.Keys, cycle []int) *Graph {
 	size := g.Size()
-	decrypted := NewGraph(size)
+	decrypted := g.Copy()
 
 	for i := 1; i < size; i++ {
-		ciphertext := g.v[i-1][i].Bytes()
-
-		plaintext, err := rsa.DecryptOAEP(sha256.New(), rand.Reader, privateKey, ciphertext, nil)
-		if err != nil {
-			return nil, err
-		}
-
-		decrypted.SetEdge(i-1, i, new(big.Int).SetBytes(plaintext))
+		decrypted.decryptEdgeRSA(cycle[i-1], cycle[i], keys)
 	}
-	ciphertext := g.v[0][size-1].Bytes()
-
-	plaintext, err := rsa.DecryptOAEP(sha256.New(), rand.Reader, privateKey, ciphertext, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	decrypted.SetEdge(0, size-1, new(big.Int).SetBytes(plaintext))
-	return decrypted, nil
+	decrypted.decryptEdgeRSA(cycle[0], cycle[size-1], keys)
+	return decrypted
 }
 
 func (g *Graph) Equals(other *Graph) bool {
@@ -298,12 +298,12 @@ func (g *Graph) Equals(other *Graph) bool {
 
 func (g *Graph) CheckCycle(cycle []int) bool {
 	for i := 1; i < len(cycle); i++ {
-		exists, _ := g.CheckEdge(i-1, i)
+		exists, _ := g.CheckEdge(cycle[i-1], cycle[i])
 		if !exists {
 			return false
 		}
 	}
-	exists, _ := g.CheckEdge(0, len(cycle)-1)
+	exists, _ := g.CheckEdge(cycle[0], cycle[len(cycle)-1])
 	if !exists {
 		return false
 	}

@@ -14,8 +14,8 @@ func main() {
 	nExtraEdges := flag.Int("extra", 0, "<number of edges except cycle>")
 	flag.Parse()
 	nEdges := *size + *nExtraEdges
-	maxEdges := *size * *size
-
+	maxEdges := *size * (*size - 1) / 2
+	
 	if nEdges > maxEdges {
 		log.Fatalf("Sum of vertexes in cycle and extra vertexes can't be bigger than square size")
 	}
